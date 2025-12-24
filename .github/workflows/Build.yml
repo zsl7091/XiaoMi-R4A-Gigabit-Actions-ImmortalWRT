@@ -57,12 +57,17 @@ jobs:
       - name: Download Packages
         working-directory: ./openwrt
         run: |
-          make defconfig
+          # 1. 仅补全依赖，不重新生成配置
+          # 2. 直接下载当前配置所需的源码包
           make download -j8
+          find dl -size -1024c -exec rm -f {} \;
 
       - name: Compile Firmware
         working-directory: ./openwrt
         run: |
+          # 检查 .config 是否被意外篡改（可选）
+          grep "CONFIG_TARGET.*DEVICE.*=y" .config
+          
           echo "Using $(nproc) threads to compile"
           make -j$(nproc) || make -j1 V=s
 
