@@ -25,20 +25,15 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt update
-          # 先安装基础工具，确保 curl 和 ca-certificates 正常工作
-          apt install -y curl ca-certificates git sudo
-
-          # 针对官方脚本的“防挂”处理：先下载，再执行
-          # 这样如果下载到的是 HTML 错误页，脚本会报错停止，而不是尝试运行它
-          curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh -o init_env.sh
+          # 必须先手动安装核心组件，防止初始化脚本因为缺少工具而失败
+          apt install -y curl ca-certificates git build-essential make sudo
           
-          # 检查文件是否为真正的脚本（避开 HTML 404 页面）
-          if grep -q "DOCTYPE html" init_env.sh; then
-            echo "错误：下载地址返回了网页而非脚本，请检查网络或链接是否有效。"
-            exit 1
-          fi
-          
+          # 执行官方初始化脚本
+          curl -fsSL build-scripts.immortalwrt.org -o init_env.sh
           bash init_env.sh
+          
+          # 再次强制检查一次 make 确保路径正确
+          apt install -y make
           
           # 设置时区
           ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
@@ -46,16 +41,19 @@ jobs:
 
       - name: Clone Source Code
         run: |
+          # 明确使用你要求的源码地址
           git clone $REPO_URL -b $REPO_BRANCH --single-branch --filter=blob:none openwrt
 
       - name: Apply Custom Configuration
         run: |
           [ -f $DIY_SH ] && cp $DIY_SH openwrt/
-          [ -f .config ] && cp .config openwrt/ || echo "No .config"
+          # 如果你有 .config 文件请确保它在项目根目录
+          [ -f .config ] && cp .config openwrt/ || echo "Warning: .config not found"
 
       - name: Update & Install Feeds
         working-directory: ./openwrt
         run: |
+          # 此时 make 已经安装，feeds 脚本可以正常识别版本
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -68,8 +66,8 @@ jobs:
       - name: Download Packages
         working-directory: ./openwrt
         run: |
+          # 容器 root 环境强制要求此参数
           make defconfig
-          # 在容器内 root 环境必须带 FORCE_UNSAFE_CONFIGURE=1
           make download -j8 FORCE_UNSAFE_CONFIGURE=1
           find dl -size -1024c -exec rm -f {} \;
 
@@ -77,7 +75,6 @@ jobs:
         working-directory: ./openwrt
         run: |
           echo "Using $(nproc) threads to compile"
-          # 2025 编译标准
           make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
 
       - name: Organize Files
@@ -85,6 +82,7 @@ jobs:
         working-directory: ./openwrt
         run: |
           mkdir -p ./artifact/
+          # 针对小米 4A 千兆版的路径查找
           find bin/targets/ramips/mt7621/ -type f -name "*sysupgrade.bin" -exec cp -f {} ./artifact/ \;
           echo "FIRMWARE_PATH=$PWD/artifact" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
@@ -103,3 +101,8 @@ jobs:
         with:
           tag_name: Mi4A_GI_${{ env.BUILD_DATE }}
           files: ${{ env.FIRMWARE_PATH }}/*
+          body: |
+            ### 小米 4A 千兆版 固件 (24.10)
+            - 源码: ${{ env.REPO_URL }}
+            - 分区布局: Breed 16MB (0x50000)
+            - 编译日期: ${{ env.BUILD_DATE }}
