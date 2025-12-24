@@ -1,9 +1,10 @@
-name: Build ImmortalWrt 24.10 (Ubuntu Host)
+name: Build ImmortalWrt 24.10
 
 on:
   workflow_dispatch:
 
 env:
+  # 完整的源码 HTTPS 链接
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: openwrt-24.10
   DIY_SH: diy.sh
@@ -11,60 +12,62 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 宿主机环境
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Initialization Environment
+      - name: Initialization Environment (Direct Install)
         run: |
-          # 1. 安装依赖需要 root 权限，所以加 sudo
+          # 移除预装冲突工具以腾出磁盘空间
+          sudo rm -rf /usr/share/dotnet /usr/share/swift /opt/ghc /opt/hostedtoolcache /usr/local/lib/android /opt/az
+          
+          # 直接安装针对 Ubuntu 22.04 编译 ImmortalWrt 24.10 所需的所有依赖
           sudo apt update
-          sudo apt install -y build-essential curl wget git python3
-          
-          # 2. 执行官方初始化脚本（内部会自动处理 sudo 逻辑）
-          curl -fsSL build-scripts.immortalwrt.org | sudo bash
-          
-          # 3. 设置系统时区
+          sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+          gettext git libncurses5-dev libssl-dev libz-dev patch python3 python3-pip python3-ply \
+          python3-setuptools qemu-utils quilt subversion swig zlib1g-dev libelf-dev libglib2.0-dev \
+          libltdl-dev libtool lrzsz scons upx-ucl unzip wget xz-utils zip bash ca-certificates \
+          curl fastjar handle lib32gcc-s1 libc6-dev-i386 mkisofs msmtp nano rsync texinfo
+
           sudo timedatectl set-timezone "$TZ"
 
       - name: Clone Source Code
         run: |
-          # 克隆源码（普通用户操作，不加 sudo）
+          # 使用完整的 HTTPS 链接克隆源码
           git clone $REPO_URL -b $REPO_BRANCH --single-branch --filter=blob:none openwrt
 
       - name: Apply Custom Configuration
         run: |
-          # 复制脚本到源码目录
+          # 将当前仓库的脚本和 .config 移入编译目录
           [ -f $DIY_SH ] && cp $DIY_SH openwrt/
-          [ -f .config ] && cp .config openwrt/ || echo "Warning: No .config found"
+          [ -f .config ] && cp .config openwrt/ || echo "Warning: .config not found"
 
       - name: Update & Install Feeds
         working-directory: ./openwrt
         run: |
-          # 普通用户执行
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Run DIY Script (Patch DTS)
+      - name: Run DIY Script (Patch DTS & Firmware Size)
         working-directory: ./openwrt
         run: |
-          # 普通用户执行
+          # 执行分区修改脚本
           chmod +x $DIY_SH
           ./$DIY_SH
 
       - name: Download Packages
         working-directory: ./openwrt
         run: |
-          # 普通用户执行
           make defconfig
           make download -j8
+          find dl -size -1024c -exec rm -f {} \;
 
       - name: Compile Firmware
         working-directory: ./openwrt
         run: |
-          # 核心编译步骤：普通用户执行，严禁加 sudo
+          # 普通用户编译，不带 sudo
           echo "Using $(nproc) threads to compile"
           make -j$(nproc) || make -j1 V=s
 
@@ -73,18 +76,18 @@ jobs:
         working-directory: ./openwrt
         run: |
           mkdir -p ./artifact/
-          # 查找生成的小米4A千兆版固件
+          # 提取小米 4A 千兆版 sysupgrade 固件
           find bin/targets/ramips/mt7621/ -type f -name "*sysupgrade.bin" -exec cp -f {} ./artifact/ \;
           echo "FIRMWARE_PATH=$PWD/artifact" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
 
-      - name: Upload Artifact
+      - name: Upload Artifact (Action Download)
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt_Mi4A_GI_${{ env.BUILD_DATE }}
           path: ${{ env.FIRMWARE_PATH }}
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (Permanent Link)
         uses: softprops/action-gh-release@v2
         if: success()
         env:
@@ -93,7 +96,8 @@ jobs:
           tag_name: Mi4A_GI_${{ env.BUILD_DATE }}
           files: ${{ env.FIRMWARE_PATH }}/*
           body: |
-            ### 小米 4A 千兆版 (24.10)
-            - 状态：编译成功
-            - 分区：16MB Breed 布局 (0x50000)
-            - 注意：此固件使用 Ubuntu 普通用户环境编译，符合官方规范。
+            ### 小米 4A 千兆版 (Xiaomi Mi Router 4A Gigabit Edition)
+            - 源码地址: ${{ env.REPO_URL }}
+            - 编译分支: ${{ env.REPO_BRANCH }}
+            - 分区修改: 16MB 闪存最大化布局 (0x50000 偏移)
+            - 引导适配: Breed / 原厂 U-Boot
