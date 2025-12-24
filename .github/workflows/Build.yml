@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 24.10
+name: Build ImmortalWrt 24.10 (Ubuntu Host)
 
 on:
   workflow_dispatch:
@@ -11,73 +11,69 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: debian:11
-      options: --user root
+    runs-on: ubuntu-22.04  # 宿主机环境
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Initialize Environment (Direct Install)
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      - name: Initialization Environment
         run: |
-          apt update
-          # 直接安装所有 ImmortalWrt 编译所需的 Debian 11 依赖包
-          apt install -y sudo curl git wget bash ca-certificates build-essential \
-          asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch \
-          python3 python3-pip python3-ply python3-setuptools flex libelf-dev \
-          autoconf automake libtool lrzsz xz-utils libssl-dev qemu-utils \
-          unzip charmap-utils libglib2.0-dev scons swig tree vim zip
+          # 1. 安装依赖需要 root 权限，所以加 sudo
+          sudo apt update
+          sudo apt install -y build-essential curl wget git python3
           
-          # 设置时区
-          ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
-          echo "$TZ" > /etc/timezone
+          # 2. 执行官方初始化脚本（内部会自动处理 sudo 逻辑）
+          curl -fsSL build-scripts.immortalwrt.org | sudo bash
+          
+          # 3. 设置系统时区
+          sudo timedatectl set-timezone "$TZ"
 
       - name: Clone Source Code
         run: |
+          # 克隆源码（普通用户操作，不加 sudo）
           git clone $REPO_URL -b $REPO_BRANCH --single-branch --filter=blob:none openwrt
 
       - name: Apply Custom Configuration
         run: |
-          # 确保脚本和配置从仓库移动到编译目录
+          # 复制脚本到源码目录
           [ -f $DIY_SH ] && cp $DIY_SH openwrt/
-          [ -f .config ] && cp .config openwrt/ || echo "No .config found"
+          [ -f .config ] && cp .config openwrt/ || echo "Warning: No .config found"
 
       - name: Update & Install Feeds
         working-directory: ./openwrt
         run: |
-          # 此时 make 已经安装，feeds 脚本可以正常识别版本
+          # 普通用户执行
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       - name: Run DIY Script (Patch DTS)
         working-directory: ./openwrt
         run: |
+          # 普通用户执行
           chmod +x $DIY_SH
           ./$DIY_SH
 
       - name: Download Packages
         working-directory: ./openwrt
         run: |
+          # 普通用户执行
           make defconfig
-          # 容器内 root 必须带 FORCE_UNSAFE_CONFIGURE=1
-          make download -j8 FORCE_UNSAFE_CONFIGURE=1
-          find dl -size -1024c -exec rm -f {} \;
+          make download -j8
 
       - name: Compile Firmware
         working-directory: ./openwrt
         run: |
+          # 核心编译步骤：普通用户执行，严禁加 sudo
           echo "Using $(nproc) threads to compile"
-          make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
+          make -j$(nproc) || make -j1 V=s
 
       - name: Organize Files
         id: organize
         working-directory: ./openwrt
         run: |
           mkdir -p ./artifact/
+          # 查找生成的小米4A千兆版固件
           find bin/targets/ramips/mt7621/ -type f -name "*sysupgrade.bin" -exec cp -f {} ./artifact/ \;
           echo "FIRMWARE_PATH=$PWD/artifact" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
@@ -98,5 +94,6 @@ jobs:
           files: ${{ env.FIRMWARE_PATH }}/*
           body: |
             ### 小米 4A 千兆版 (24.10)
-            - 闪存布局: Breed 16MB (0x50000)
-            - 编译时间: ${{ env.BUILD_DATE }}
+            - 状态：编译成功
+            - 分区：16MB Breed 布局 (0x50000)
+            - 注意：此固件使用 Ubuntu 普通用户环境编译，符合官方规范。
