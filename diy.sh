@@ -3,11 +3,7 @@
 sed -i 's/xiaomi_mi-router-4a-gigabit_max_size := .*/xiaomi_mi-router-4a-gigabit_max_size := 16064k/' target/linux/ramips/image/mt7621.mk
 
 # 修改 DTS 文件
-DTS_PATH="target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi"
-# 确保目录存在
-mkdir -p $(dirname $DTS_PATH)
-
-cat > $DTS_PATH <<EOF
+cat > target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi <<'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 #include "mt7621.dtsi"
 #include <dt-bindings/gpio/gpio.h>
