@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 24.10 (Debian 11)
+name: Build ImmortalWrt 24.10
 
 on:
   workflow_dispatch:
@@ -14,22 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: debian:11
-      options: --user root  # 容器内以 root 身份运行以确保权限
+      options: --user root
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Initialize Environment (Debian 11)
+      - name: Initialize Environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt update
-          # 安装基础工具：curl(下载脚本), sudo(部分脚本内置需要), git(克隆源码), ca-certificates(https支持)
-          apt install -y curl sudo git ca-certificates build-essential
+          # 先安装基础工具，确保 curl 和 ca-certificates 正常工作
+          apt install -y curl ca-certificates git sudo
+
+          # 针对官方脚本的“防挂”处理：先下载，再执行
+          # 这样如果下载到的是 HTML 错误页，脚本会报错停止，而不是尝试运行它
+          curl -fsSL https://build-scripts.immortalwrt.org/init_build_environment.sh -o init_env.sh
           
-          # 【HTTPS下载】执行官方推荐的 Debian 环境初始化脚本
-          curl -fsSL build-scripts.immortalwrt.org | bash
+          # 检查文件是否为真正的脚本（避开 HTML 404 页面）
+          if grep -q "DOCTYPE html" init_env.sh; then
+            echo "错误：下载地址返回了网页而非脚本，请检查网络或链接是否有效。"
+            exit 1
+          fi
+          
+          bash init_env.sh
           
           # 设置时区
           ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
@@ -37,14 +46,12 @@ jobs:
 
       - name: Clone Source Code
         run: |
-          # 克隆源码到 openwrt 目录
           git clone $REPO_URL -b $REPO_BRANCH --single-branch --filter=blob:none openwrt
 
       - name: Apply Custom Configuration
         run: |
-          # 将你仓库根目录的 diy.sh 和 .config 复制到源码目录
           [ -f $DIY_SH ] && cp $DIY_SH openwrt/
-          [ -f .config ] && cp .config openwrt/ || echo "No .config found, using default"
+          [ -f .config ] && cp .config openwrt/ || echo "No .config"
 
       - name: Update & Install Feeds
         working-directory: ./openwrt
@@ -55,7 +62,6 @@ jobs:
       - name: Run DIY Script (Patch DTS)
         working-directory: ./openwrt
         run: |
-          # 运行你编写的分区修改脚本
           chmod +x $DIY_SH
           ./$DIY_SH
 
@@ -63,34 +69,33 @@ jobs:
         working-directory: ./openwrt
         run: |
           make defconfig
-          make download -j8
+          # 在容器内 root 环境必须带 FORCE_UNSAFE_CONFIGURE=1
+          make download -j8 FORCE_UNSAFE_CONFIGURE=1
           find dl -size -1024c -exec rm -f {} \;
 
       - name: Compile Firmware
         working-directory: ./openwrt
         run: |
-          # 开启 FORCE_UNSAFE_CONFIGURE=1 以允许 root 编译
-          export FORCE_UNSAFE_CONFIGURE=1
           echo "Using $(nproc) threads to compile"
-          make -j$(nproc) || make -j1 V=s
+          # 2025 编译标准
+          make -j$(nproc) FORCE_UNSAFE_CONFIGURE=1 || make -j1 V=s FORCE_UNSAFE_CONFIGURE=1
 
       - name: Organize Files
         id: organize
         working-directory: ./openwrt
         run: |
           mkdir -p ./artifact/
-          # 查找生成的小米4A千兆版 sysupgrade 固件
           find bin/targets/ramips/mt7621/ -type f -name "*sysupgrade.bin" -exec cp -f {} ./artifact/ \;
           echo "FIRMWARE_PATH=$PWD/artifact" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
 
-      - name: Upload Artifact (Backup)
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt_Mi4A_GI_${{ env.BUILD_DATE }}
           path: ${{ env.FIRMWARE_PATH }}
 
-      - name: Create GitHub Release (Permanent Link)
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: success()
         env:
@@ -98,8 +103,3 @@ jobs:
         with:
           tag_name: Mi4A_GI_${{ env.BUILD_DATE }}
           files: ${{ env.FIRMWARE_PATH }}/*
-          body: |
-            ### 小米 4A 千兆版 固件
-            - **分支**: ${{ env.REPO_BRANCH }}
-            - **内核**: 2025 推荐 (6.6+)
-            - **说明**: 已修改分区表为 16MB 直刷布局（0x50000），适配 Breed。
