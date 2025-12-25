@@ -69,8 +69,10 @@ jobs:
           grep "CONFIG_TARGET.*DEVICE.*=y" .config
           
           echo "Using $(nproc) threads to compile"
-          make -j$(nproc) || make -j1 V=s
-
+          # 关键修改：在 make 命令后直接带上参数
+          # IGNORE_ERRORS=m 表示即使某些选为 <M> 的包编译失败，也不要停止，继续生成内核和固件
+          make -j$(nproc) IGNORE_ERRORS=m || make -j1 V=s IGNORE_ERRORS=m
+          
       - name: Organize Files
         id: organize
         working-directory: ./openwrt
