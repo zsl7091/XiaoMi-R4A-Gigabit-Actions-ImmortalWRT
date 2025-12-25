@@ -83,3 +83,6 @@ cat > target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi <<'EOF'
 &gmac0 { nvmem-cells = <&macaddr_factory_e000>; nvmem-cell-names = "mac-address"; };
 &state_default { gpio { groups = "jtag", "uart2", "uart3", "wdt"; function = "gpio"; }; };
 EOF
+
+# 将配置文件中所有选为模块 (m) 的项改为不编译 (n)
+sed -i 's/=m$/=n/g' .config
