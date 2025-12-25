@@ -3,6 +3,11 @@
 sed -i 's/xiaomi_mi-router-4a-gigabit_max_size := .*/xiaomi_mi-router-4a-gigabit_max_size := 16064k/' target/linux/ramips/image/mt7621.mk
 
 # 修改 DTS 文件
+#!/bin/bash
+# 修改固件最大容量限制
+sed -i 's/xiaomi_mi-router-4a-gigabit_max_size := .*/xiaomi_mi-router-4a-gigabit_max_size := 16064k/' target/linux/ramips/image/mt7621.mk
+
+# 修改 DTS 文件
 cat > target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi <<'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 #include "mt7621.dtsi"
@@ -34,7 +39,9 @@ cat > target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi <<'EOF'
 		reg = <0>;
 		spi-max-frequency = <50000000>;
 		m25p,fast-read;
-		partitions {
+
+		# 这里的 partitions: 是标签，后面的 partitions 是节点名，必须这样写
+		partitions: partitions {
 			compatible = "fixed-partitions";
 			#address-cells = <1>;
 			#size-cells = <1>;
@@ -76,6 +83,3 @@ cat > target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi <<'EOF'
 &gmac0 { nvmem-cells = <&macaddr_factory_e000>; nvmem-cell-names = "mac-address"; };
 &state_default { gpio { groups = "jtag", "uart2", "uart3", "wdt"; function = "gpio"; }; };
 EOF
-
-# 将配置文件中所有选为模块 (m) 的项改为不编译 (n)
-sed -i 's/=m$/=n/g' .config
