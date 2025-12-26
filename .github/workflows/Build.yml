@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 24.10
+name: Build ImmortalWrt v21.02.7
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 env:
   # 已经更正并核对：必须包含 https:// 协议头
   REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: openwrt-24.10
+  REPO_BRANCH: v21.02.7
   DIY_SH: diy.sh
   TZ: Asia/Shanghai
 
