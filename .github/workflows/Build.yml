@@ -40,7 +40,7 @@ jobs:
         run: |
           # 只有当前仓库存在该文件时才执行复制，避免报错
           [ -f $DIY_SH ] && cp $DIY_SH openwrt/
-          [ -f mt7621.mk ] && cp -f mt7621.mk openwrt/target/linux/ramips/image/
+          #[ -f mt7621.mk ] && cp -f mt7621.mk openwrt/target/linux/ramips/image/
           [ -f .config ] && cp -f .config openwrt/ || echo "Warning: .config not found"
 
       - name: Update & Install Feeds
