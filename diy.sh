@@ -4,6 +4,9 @@
 # 在这个区间内，将 IMAGE_SIZE := 14384k 替换为 16064k
 sed -i '/Device\/xiaomi_mi-router-4a-gigabit/,/endef/ { s/IMAGE_SIZE := 14848k/IMAGE_SIZE := 16064k/ }' target/linux/ramips/image/mt7621.mk
 
+# 打印修改后的内容到日志
+grep -A 5 "Device/xiaomi_mi-router-4a-gigabit" target/linux/ramips/image/mt7621.mk
+
 # 2. 修改 DTS 文件 (使用单引号 EOF 确保内容不被环境变量解析)
 cat > target/linux/ramips/dts/mt7621_xiaomi_mi-router-4a-common.dtsi <<'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
